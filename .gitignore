@@ -1,0 +1,36 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Dependencies
+/vendor/
+node_modules/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+/logs/
+
+# Cache and temporary files
+/cache/
+/tmp/
+*.cache
+
+# PHP
+composer.phar
+composer.lock
+
+# Session files
+/sessions/
+
+# Build artifacts
+/build/
+/dist/

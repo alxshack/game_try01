@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knight's Quest - Roguelike</title>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        canvas {
+            image-rendering: pixelated;
+        }
+        #game-container {
+            border: 4px solid #444;
+            box-shadow: 0 0 20px rgba(0,255,0,0.2);
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container"></div>
+
+    <script>
+        const TILE_SIZE = 32;
+        const COLS = 20;
+        const ROWS = 15;
+        const WIDTH = COLS * TILE_SIZE;
+        const HEIGHT = ROWS * TILE_SIZE;
+
+        const LEVELS = [
+            // Level 0: Collect 2 Goblins to get HP 3
+            [
+                "####################",
+                "#@...#.........#...#",
+                "####.#.#######.#.1.#",
+                "#....#.#.....#.#...#",
+                "#.####.#.###.#.#####",
+                "#.#....#.#1#.#.....#",
+                "#.#.####.#.#.#####.#",
+                "#.#......#.#.....#.#",
+                "#.########.#####.#.#",
+                "#................#.#",
+                "##################.#",
+                "#..................#",
+                "#..................#",
+                "##################>#",
+                "####################"
+            ],
+            // Level 1: Kill Orc (HP 3) to get HP 6
+            [
+                "####################",
+                "#<.................#",
+                "##################.#",
+                "#................#.#",
+                "#.################.#",
+                "#.#................#",
+                "#.#.################",
+                "#.#.#..............#",
+                "#.#.#.......3......#",
+                "#.#.#..............#",
+                "#.#.################",
+                "#.#................#",
+                "#.#................#",
+                "#.################>#",
+                "####################"
+            ],
+            // Level 2: Kill Troll (HP 6) then Boss (HP 10) to reach Exit
+            [
+                "####################",
+                "#<.................#",
+                "##################.#",
+                "#................#.#",
+                "#.################.#",
+                "#.#.......6........#",
+                "#.#.################",
+                "#.#.#..............#",
+                "#.#.#......10......#",
+                "#.#.#..............#",
+                "#.#.################",
+                "#.#................#",
+                "#.#................#",
+                "#.################X#",
+                "####################"
+            ]
+        ];
+
+        class GameScene extends Phaser.Scene {
+            constructor() {
+                super('GameScene');
+                this.currentLevelIndex = 0;
+                this.playerHP = 1;
+                this.isMoving = false;
+                this.gameOver = false;
+                this.selectedPath = [];
+                this.targetTile = null;
+            }
+
+            init() {
+                // Reset/Init volatile scene properties
+                this.player = null;
+                this.playerLight = null;
+                this.map = null;
+                this.layer = null;
+                this.enemies = null;
+                this.stairs = null;
+                this.exit = null;
+                this.isMoving = false;
+                this.msgTimer = null;
+                this.msgText = null;
+                this.selectedPath = [];
+                this.targetTile = null;
+            }
+
+            preload() {
+                try {
+                    if (!this.textures.exists('tiles')) {
+                        this.generateTextures();
+                    }
+                } catch (e) {
+                    console.error("Preload Error:", e);
+                }
+            }
+
+            generateTextures() {
+                // Check if already generated (prevents error on restart)
+                if (this.textures.exists('tiles') && this.textures.exists('player')) return;
+
+                // Create Tileset Canvas
+                const canvas = document.createElement('canvas');
+                canvas.width = TILE_SIZE * 5;
+                canvas.height = TILE_SIZE;
+                const ctx = canvas.getContext('2d');
+
+                // 0: Floor
+                ctx.fillStyle = '#222222';
+                ctx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+                ctx.fillStyle = '#2a2a2a';
+                for(let i=0; i<15; i++) {
+                    ctx.fillRect(Math.random()*TILE_SIZE, Math.random()*TILE_SIZE, 2, 2);
+                }
+
+                // 1: Wall
+                ctx.fillStyle = '#444444';
+                ctx.fillRect(TILE_SIZE, 0, TILE_SIZE, TILE_SIZE);
+                ctx.strokeStyle = '#666666';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(TILE_SIZE + 2, 2, TILE_SIZE - 4, TILE_SIZE - 4);
+                ctx.beginPath();
+                ctx.moveTo(TILE_SIZE, TILE_SIZE/2);
+                ctx.lineTo(TILE_SIZE*2, TILE_SIZE/2);
+                ctx.stroke();
+
+                // 2: Stairs
+                ctx.fillStyle = '#222222';
+                ctx.fillRect(TILE_SIZE*2, 0, TILE_SIZE, TILE_SIZE);
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.moveTo(TILE_SIZE*2 + 8, TILE_SIZE - 8);
+                ctx.lineTo(TILE_SIZE*2 + TILE_SIZE/2, 8);
+                ctx.lineTo(TILE_SIZE*2 + TILE_SIZE - 8, TILE_SIZE - 8);
+                ctx.fill();
+                // Avoid using shadow properties which can be flaky in some envs
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                // 3: Exit
+                ctx.fillStyle = '#222222';
+                ctx.fillRect(TILE_SIZE*3, 0, TILE_SIZE, TILE_SIZE);
+                ctx.strokeStyle = '#ffd700';
+                ctx.lineWidth = 4;
+                ctx.strokeRect(TILE_SIZE*3 + 4, 4, TILE_SIZE - 8, TILE_SIZE - 8);
+                ctx.beginPath();
+                ctx.moveTo(TILE_SIZE*3 + 8, 8);
+                ctx.lineTo(TILE_SIZE*3 + 24, 24);
+                ctx.moveTo(TILE_SIZE*3 + 24, 8);
+                ctx.lineTo(TILE_SIZE*3 + 8, 24);
+                ctx.stroke();
+
+                // 4: Particle
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(TILE_SIZE*4 + 14, 14, 4, 4);
+
+                this.textures.addSpriteSheet('tiles', canvas, { frameWidth: TILE_SIZE, frameHeight: TILE_SIZE });
+
+                // Generate Player Sprite (Knight)
+                const pCanvas = document.createElement('canvas');
+                pCanvas.width = TILE_SIZE * 4;
+                pCanvas.height = TILE_SIZE * 4;
+                const pCtx = pCanvas.getContext('2d');
+                
+                for(let d=0; d<4; d++) { // 4 directions: 0:down, 1:up, 2:left, 3:right
+                    for(let f=0; f<4; f++) { // 4 frames
+                        let x = f * TILE_SIZE;
+                        let y = d * TILE_SIZE;
+                        let bounce = (f % 2 === 0) ? 0 : -3;
+                        
+                        // Body
+                        pCtx.fillStyle = '#555';
+                        pCtx.fillRect(x + 8, y + 10 + bounce, 16, 16);
+                        // Helmet
+                        pCtx.fillStyle = '#ddd';
+                        pCtx.fillRect(x + 10, y + 2 + bounce, 12, 10);
+                        // Eyes
+                        pCtx.fillStyle = '#000';
+                        pCtx.fillRect(x + 12, y + 6 + bounce, 2, 2);
+                        pCtx.fillRect(x + 18, y + 6 + bounce, 2, 2);
+                        // Cape
+                        pCtx.fillStyle = '#a00';
+                        pCtx.fillRect(x + 6, y + 12 + bounce, 4, 12);
+                        // Sword
+                        pCtx.fillStyle = '#fff';
+                        if(d === 3) pCtx.fillRect(x + 24, y + 8 + bounce, 6, 2); // Right
+                        else if(d === 2) pCtx.fillRect(x + 2, y + 8 + bounce, 6, 2); // Left
+                        else pCtx.fillRect(x + 24, y + 12 + bounce, 2, 10); // Down/Up
+                    }
+                }
+                this.textures.addSpriteSheet('player', pCanvas, { frameWidth: TILE_SIZE, frameHeight: TILE_SIZE });
+
+                // Generate Enemies (Checks for existence inside)
+                this.generateEnemyTexture('goblin', '#44aa44', 'slime');
+                this.generateEnemyTexture('orc', '#885522', 'brute');
+                this.generateEnemyTexture('troll', '#777777', 'rocky');
+                this.generateEnemyTexture('boss', '#cc3333', 'giant');
+            }
+
+            generateEnemyTexture(key, color, type) {
+                if (this.textures.exists(key)) return;
+                const canvas = document.createElement('canvas');
+                canvas.width = TILE_SIZE;
+                canvas.height = TILE_SIZE;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = color;
+                
+                if(type === 'slime') {
+                    ctx.beginPath();
+                    ctx.arc(16, 20, 10, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#fff';
+                    ctx.fillRect(10, 15, 4, 4);
+                    ctx.fillRect(18, 15, 4, 4);
+                } else if(type === 'brute') {
+                    ctx.fillRect(6, 10, 20, 20);
+                    ctx.fillStyle = '#fff'; // Tusks
+                    ctx.fillRect(8, 20, 4, 6);
+                    ctx.fillRect(20, 20, 4, 6);
+                } else {
+                    ctx.fillRect(4, 4, 24, 24);
+                    if(key === 'boss') {
+                        ctx.fillStyle = '#f00';
+                        ctx.fillRect(8, 10, 6, 6);
+                        ctx.fillRect(18, 10, 6, 6);
+                    }
+                }
+                this.textures.addCanvas(key, canvas);
+            }
+
+            create() {
+                try {
+                    this.isWebGL = this.renderer.type === Phaser.WEBGL;
+                    this.input.keyboard.on('keyup', this.handleInput, this);
+                    this.input.on('pointerdown', this.handlePointerDown, this);
+                    this.cameras.main.setBackgroundColor('#000000');
+                    
+                    this.pathGraphics = this.add.graphics().setDepth(5);
+                    
+                    // Lighting (only if WebGL is available)
+                    if (this.isWebGL && this.lights) {
+                        this.lights.enable();
+                        this.lights.setAmbientColor(0x444444);
+                        this.playerLight = this.lights.addLight(0, 0, 200).setIntensity(2);
+                    }
+
+                    // Order matters: setup components before level
+                    this.setupUI();
+                    this.setupParticles();
+                    this.setupLevel(this.currentLevelIndex);
+                    
+                    console.log("Knight's Quest: Game Started Successfully");
+                } catch (e) {
+                    console.error("Create Error:", e);
+                    // Attempt to show error on screen
+                    this.add.text(10, 10, "Error: " + e.message, { color: '#ff0000' });
+                }
+            }
+
+            setupLevel(index) {
+                // Safe cleanup
+                if(this.map) {
+                    this.map.destroy();
+                    this.map = null;
+                }
+                if(this.layer) {
+                    this.layer.destroy();
+                    this.layer = null;
+                }
+                if(this.enemies) this.enemies.clear(true, true);
+                if(this.stairs) this.stairs.clear(true, true);
+                if(this.exit) {
+                    this.exit.destroy();
+                    this.exit = null;
+                }
+
+                const levelData = LEVELS[index];
+                if (!levelData) return;
+
+                const mapData = [];
+                this.enemies = this.add.group();
+                this.stairs = this.add.group();
+
+                // Find player start or stairs
+                let startPos = { x: 1, y: 1 };
+                for(let y=0; y<ROWS; y++) {
+                    for(let x=0; x<COLS; x++) {
+                        if (levelData[y][x] === '@') startPos = { x, y };
+                        else if (levelData[y][x] === '<' && index > 0) startPos = { x, y };
+                    }
+                }
+
+                if(!this.player) {
+                    this.player = this.add.sprite(startPos.x*TILE_SIZE + 16, startPos.y*TILE_SIZE + 16, 'player', 0);
+                    if (this.isWebGL) this.player.setPipeline('Light2D');
+                    this.createPlayerAnims();
+                } else {
+                    this.player.setPosition(startPos.x*TILE_SIZE + 16, startPos.y*TILE_SIZE + 16);
+                }
+                
+                if (this.playerLight) this.playerLight.setPosition(this.player.x, this.player.y);
+
+                for(let y=0; y<ROWS; y++) {
+                    const row = [];
+                    for(let x=0; x<COLS; x++) {
+                        const char = levelData[y][x];
+                        let tile = 0; // Floor
+                        if(char === '#') tile = 1;
+                        
+                        if(char === '>' || char === '<') {
+                            const s = this.add.sprite(x*TILE_SIZE + 16, y*TILE_SIZE + 16, 'tiles', 2);
+                            s.levelTarget = (char === '>') ? index + 1 : index - 1;
+                            if (this.isWebGL) s.setPipeline('Light2D');
+                            this.stairs.add(s);
+                        }
+                        
+                        if(char === 'X') {
+                            this.exit = this.add.sprite(x*TILE_SIZE + 16, y*TILE_SIZE + 16, 'tiles', 3);
+                            if (this.isWebGL) this.exit.setPipeline('Light2D');
+                            this.add.tween({
+                                targets: this.exit,
+                                scale: 1.2,
+                                duration: 800,
+                                yoyo: true,
+                                repeat: -1
+                            });
+                        }
+                        
+                        // Enemies
+                        if(['1', '3', '6', '10'].includes(char)) {
+                            this.spawnEnemy(x, y, char);
+                        }
+
+                        row.push(tile);
+                    }
+                    mapData.push(row);
+                }
+
+                this.map = this.make.tilemap({ data: mapData, tileWidth: TILE_SIZE, tileHeight: TILE_SIZE });
+                const tileset = this.map.addTilesetImage('tiles', 'tiles', TILE_SIZE, TILE_SIZE, 0, 0);
+                this.layer = this.map.createLayer(0, tileset, 0, 0);
+                if (this.isWebGL) this.layer.setPipeline('Light2D');
+
+                if (this.player) {
+                    this.player.depth = 10;
+                }
+                this.message("Level " + (index + 1));
+            }
+
+            spawnEnemy(x, y, hpStr) {
+                const hp = parseInt(hpStr);
+                let key = 'goblin';
+                if(hp === 3) key = 'orc';
+                if(hp === 6) key = 'troll';
+                if(hp === 10) key = 'boss';
+
+                const e = this.add.sprite(x*TILE_SIZE + 16, y*TILE_SIZE + 16, key);
+                e.hp = hp;
+                if (this.isWebGL) e.setPipeline('Light2D');
+                this.enemies.add(e);
+
+                const txt = this.add.text(e.x, e.y - 20, 'HP:' + hp, { fontSize: '12px', color: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
+                e.hpText = txt;
+
+                // Anims
+                if(key === 'goblin') {
+                    this.tweens.add({ targets: e, scaleX: 1.2, duration: 400, yoyo: true, repeat: -1 });
+                } else if(key === 'orc') {
+                    this.tweens.add({ targets: e, scaleY: 1.1, duration: 600, yoyo: true, repeat: -1 });
+                } else if(key === 'troll') {
+                    this.tweens.add({ targets: e, alpha: 0.7, duration: 1000, yoyo: true, repeat: -1 });
+                } else if(key === 'boss') {
+                    this.tweens.add({ targets: e, x: '+=2', duration: 50, yoyo: true, repeat: -1 });
+                }
+            }
+
+            createPlayerAnims() {
+                const dirs = ['down', 'up', 'left', 'right'];
+                for(let i=0; i<4; i++) {
+                    this.anims.create({
+                        key: 'walk-' + dirs[i],
+                        frames: this.anims.generateFrameNumbers('player', { start: i*4, end: i*4 + 3 }),
+                        frameRate: 10,
+                        repeat: -1
+                    });
+                }
+            }
+
+            setupUI() {
+                this.uiContainer = this.add.container(0, 0).setScrollFactor(0);
+                this.uiContainer.depth = 100;
+
+                const bg = this.add.rectangle(WIDTH/2, 20, WIDTH, 40, 0x000000, 0.7);
+                this.hpBarBg = this.add.rectangle(80, 20, 100, 15, 0x330000);
+                this.hpBar = this.add.rectangle(80, 20, 100, 15, 0x00ff00);
+                this.hpText = this.add.text(140, 20, 'HP: ' + this.playerHP, { fontSize: '16px', color: '#fff' }).setOrigin(0, 0.5);
+                
+                this.msgText = this.add.text(WIDTH/2, HEIGHT - 30, '', { fontSize: '18px', color: '#ffff00', backgroundColor: '#000000' }).setOrigin(0.5);
+                
+                this.uiContainer.add([bg, this.hpBarBg, this.hpBar, this.hpText, this.msgText]);
+                this.updateUI();
+            }
+
+            updateUI() {
+                if (!this.hpBar || !this.hpText) return;
+                const targetWidth = Math.min(this.playerHP * 10, 200);
+                if(this.hpBar.width !== targetWidth) {
+                    this.tweens.add({
+                        targets: this.hpBar,
+                        width: targetWidth,
+                        duration: 200
+                    });
+                }
+                this.hpText.setText('HP: ' + this.playerHP);
+            }
+
+            message(txt) {
+                if (!this.msgText) return;
+                this.msgText.setText(txt);
+                this.msgText.setAlpha(1);
+                if(this.msgTimer) this.msgTimer.remove();
+                this.msgTimer = this.time.delayedCall(2000, () => {
+                    this.tweens.add({ targets: this.msgText, alpha: 0, duration: 500 });
+                });
+            }
+
+            setupParticles() {
+                // Texture must exist for emitter to init correctly
+                if (!this.textures.exists('tiles')) return;
+
+                this.particles = this.add.particles(0, 0, 'tiles', {
+                    frame: 4,
+                    scale: { start: 1, end: 0 },
+                    alpha: { start: 1, end: 0 },
+                    lifespan: 600,
+                    speed: { min: 50, max: 150 },
+                    blendMode: 'ADD',
+                    emitting: false
+                });
+            }
+
+            handleInput(event) {
+                if (event.keyCode === Phaser.Input.Keyboard.KeyCodes.R) {
+                    this.playerHP = 1;
+                    this.currentLevelIndex = 0;
+                    this.gameOver = false;
+                    this.scene.restart();
+                    return;
+                }
+
+                if(this.isMoving || this.gameOver) return;
+
+                let dx = 0;
+                let dy = 0;
+
+                if (event.keyCode === Phaser.Input.Keyboard.KeyCodes.W || event.keyCode === Phaser.Input.Keyboard.KeyCodes.UP) dy = -1;
+                else if (event.keyCode === Phaser.Input.Keyboard.KeyCodes.S || event.keyCode === Phaser.Input.Keyboard.KeyCodes.DOWN) dy = 1;
+                else if (event.keyCode === Phaser.Input.Keyboard.KeyCodes.A || event.keyCode === Phaser.Input.Keyboard.KeyCodes.LEFT) dx = -1;
+                else if (event.keyCode === Phaser.Input.Keyboard.KeyCodes.D || event.keyCode === Phaser.Input.Keyboard.KeyCodes.RIGHT) dx = 1;
+
+                if (dx !== 0 || dy !== 0) {
+                    this.clearPath();
+                    this.tryMove(dx, dy);
+                }
+            }
+
+            handlePointerDown(pointer) {
+                if (this.gameOver || this.isMoving) return;
+
+                const x = Math.floor(pointer.x / TILE_SIZE);
+                const y = Math.floor(pointer.y / TILE_SIZE);
+
+                if (this.targetTile && this.targetTile.x === x && this.targetTile.y === y && this.selectedPath.length > 0) {
+                    this.executePath();
+                } else {
+                    const startX = Math.floor(this.player.x / TILE_SIZE);
+                    const startY = Math.floor(this.player.y / TILE_SIZE);
+                    const path = this.findPath(startX, startY, x, y);
+
+                    if (path) {
+                        this.selectedPath = path;
+                        this.targetTile = { x, y };
+                        this.drawPath();
+                    } else {
+                        this.clearPath();
+                    }
+                }
+            }
+
+            isWalkable(x, y) {
+                if (x < 0 || x >= COLS || y < 0 || y >= ROWS) return false;
+                const tile = this.map.getTileAt(x, y);
+                if (tile && tile.index === 1) return false; // Wall
+
+                let enemy = null;
+                this.enemies.getChildren().forEach(e => {
+                    if (Math.floor(e.x / TILE_SIZE) === x && Math.floor(e.y / TILE_SIZE) === y) {
+                        enemy = e;
+                    }
+                });
+
+                if (enemy) {
+                    return this.playerHP >= enemy.hp;
+                }
+                return true;
+            }
+
+            findPath(startX, startY, endX, endY) {
+                if (startX === endX && startY === endY) return [];
+                const queue = [{ x: startX, y: startY, path: [] }];
+                const visited = new Set();
+                visited.add(`${startX},${startY}`);
+
+                while (queue.length > 0) {
+                    const { x, y, path } = queue.shift();
+                    const neighbors = [
+                        { dx: 0, dy: -1 }, { dx: 0, dy: 1 },
+                        { dx: -1, dy: 0 }, { dx: 1, dy: 0 }
+                    ];
+
+                    for (const n of neighbors) {
+                        const nx = x + n.dx;
+                        const ny = y + n.dy;
+
+                        if (nx === endX && ny === endY) {
+                            if (this.isWalkable(nx, ny)) {
+                                return [...path, { x: nx, y: ny }];
+                            }
+                        }
+
+                        if (nx >= 0 && nx < COLS && ny >= 0 && ny < ROWS && 
+                            !visited.has(`${nx},${ny}`) && this.isWalkable(nx, ny)) {
+                            visited.add(`${nx},${ny}`);
+                            queue.push({ x: nx, y: ny, path: [...path, { x: nx, y: ny }] });
+                        }
+                    }
+                }
+                return null;
+            }
+
+            drawPath() {
+                this.pathGraphics.clear();
+                if (this.selectedPath.length === 0) return;
+
+                this.pathGraphics.lineStyle(2, 0xffff00, 0.5);
+                this.pathGraphics.fillStyle(0xffff00, 0.3);
+
+                this.selectedPath.forEach(step => {
+                    this.pathGraphics.fillRect(step.x * TILE_SIZE + 4, step.y * TILE_SIZE + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+                });
+
+                if (this.targetTile) {
+                    this.pathGraphics.lineStyle(2, 0xffff00, 1);
+                    this.pathGraphics.strokeRect(this.targetTile.x * TILE_SIZE + 2, this.targetTile.y * TILE_SIZE + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+                }
+            }
+
+            clearPath() {
+                this.selectedPath = [];
+                this.targetTile = null;
+                if (this.pathGraphics) this.pathGraphics.clear();
+            }
+
+            executePath() {
+                if (this.selectedPath.length === 0) {
+                    this.clearPath();
+                    return;
+                }
+
+                const next = this.selectedPath.shift();
+                const curX = Math.floor(this.player.x / TILE_SIZE);
+                const curY = Math.floor(this.player.y / TILE_SIZE);
+                const dx = next.x - curX;
+                const dy = next.y - curY;
+
+                if (this.isWalkable(next.x, next.y)) {
+                    this.tryMove(dx, dy, () => {
+                        this.drawPath();
+                        this.executePath();
+                    });
+                } else {
+                    this.clearPath();
+                    this.message("Path blocked!");
+                }
+            }
+
+            tryMove(dx, dy, onComplete) {
+                const newX = Math.floor(this.player.x / TILE_SIZE) + dx;
+                const newY = Math.floor(this.player.y / TILE_SIZE) + dy;
+
+                if(newX < 0 || newX >= COLS || newY < 0 || newY >= ROWS) return;
+
+                const tile = this.map.getTileAt(newX, newY);
+                if(tile && tile.index === 1) return; // Wall
+
+                // Check Enemies
+                let enemyFound = null;
+                this.enemies.getChildren().forEach(e => {
+                    if(Math.floor(e.x/TILE_SIZE) === newX && Math.floor(e.y/TILE_SIZE) === newY) {
+                        enemyFound = e;
+                    }
+                });
+
+                if(enemyFound) {
+                    if(this.playerHP >= enemyFound.hp) {
+                        this.defeatEnemy(enemyFound);
+                    } else {
+                        this.message("Too weak! Need HP: " + enemyFound.hp);
+                        this.cameras.main.shake(100, 0.01);
+                        this.clearPath();
+                        return;
+                    }
+                }
+
+                this.movePlayer(newX, newY, dx, dy, onComplete);
+            }
+
+            movePlayer(nx, ny, dx, dy, onComplete) {
+                this.isMoving = true;
+                const animKey = dx > 0 ? 'walk-right' : dx < 0 ? 'walk-left' : dy > 0 ? 'walk-down' : 'walk-up';
+                this.player.play(animKey);
+
+                this.tweens.add({
+                    targets: this.player,
+                    x: nx * TILE_SIZE + 16,
+                    y: ny * TILE_SIZE + 16,
+                    duration: 100,
+                    onUpdate: () => {
+                        if (this.playerLight) {
+                            this.playerLight.x = this.player.x;
+                            this.playerLight.y = this.player.y;
+                        }
+                    },
+                    onComplete: () => {
+                        this.isMoving = false;
+                        this.player.stop();
+                        this.checkTriggers(nx, ny);
+                        if (onComplete) onComplete();
+                    }
+                });
+            }
+
+            defeatEnemy(e) {
+                this.playerHP += e.hp;
+                this.updateUI();
+                this.message("Defeated " + e.texture.key + "! +" + e.hp + " HP");
+                
+                this.particles.explode(20, e.x, e.y);
+                e.hpText.destroy();
+                e.destroy();
+            }
+
+            checkTriggers(x, y) {
+                // Stairs
+                this.stairs.getChildren().forEach(s => {
+                    if(Math.floor(s.x/TILE_SIZE) === x && Math.floor(s.y/TILE_SIZE) === y) {
+                        this.currentLevelIndex = s.levelTarget;
+                        this.setupLevel(this.currentLevelIndex);
+                    }
+                });
+
+                // Exit
+                if(this.exit && Math.floor(this.exit.x/TILE_SIZE) === x && Math.floor(this.exit.y/TILE_SIZE) === y) {
+                    this.win();
+                }
+            }
+
+            win() {
+                this.gameOver = true;
+                this.add.rectangle(WIDTH/2, HEIGHT/2, WIDTH, HEIGHT, 0x000000, 0.8).depth = 1000;
+                this.add.text(WIDTH/2, HEIGHT/2 - 50, 'VICTORY!', { fontSize: '64px', color: '#ffd700' }).setOrigin(0.5).depth = 1001;
+                this.add.text(WIDTH/2, HEIGHT/2 + 20, 'Final HP: ' + this.playerHP, { fontSize: '24px', color: '#fff' }).setOrigin(0.5).depth = 1001;
+                this.add.text(WIDTH/2, HEIGHT/2 + 60, 'Press R to Restart', { fontSize: '18px', color: '#aaa' }).setOrigin(0.5).depth = 1001;
+            }
+        }
+
+        const config = {
+            type: Phaser.AUTO,
+            width: WIDTH,
+            height: HEIGHT,
+            parent: 'game-container',
+            pixelArt: true,
+            backgroundColor: '#000000',
+            scene: GameScene,
+            scale: {
+                mode: Phaser.Scale.FIT,
+                autoCenter: Phaser.Scale.CENTER_BOTH
+            }
+        };
+
+        const game = new Phaser.Game(config);
+    </script>
+</body>
+</html>
