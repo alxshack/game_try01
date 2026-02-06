@@ -8,6 +8,7 @@ class GameState {
     public bool $gameOver;
     public bool $victory;
     public int $currentLevel;
+    public ?array $pendingCombatEnemyPos = null; // ['x'=>int,'y'=>int,'z'=>int]
 
     public function __construct(Map $map, int $level = 1) {
         $this->map = $map;
@@ -62,6 +63,38 @@ class GameState {
         if ($key !== false) {
             unset($this->enemies[$key]);
             $this->enemies = array_values($this->enemies);
+        }
+    }
+
+    /**
+     * Проверяет, не проиграл ли игрок по причине невозможности победить оставшихся врагов.
+     */
+    public function checkLossCondition(): void {
+        if ($this->gameOver || $this->victory) {
+            return;
+        }
+
+        if (empty($this->enemies)) {
+            // Если врагов нет, это может быть победа на уровне, но не проигрыш по HP.
+            return;
+        }
+
+        $canWinAny = false;
+        foreach ($this->enemies as $enemy) {
+            // Игрок может победить, если его HP больше или равно HP врага (шанс 50/50 при равенстве)
+            if ($this->hero->hp >= $enemy->hp) {
+                // Проверяем, можно ли дойти до этого врага
+                $path = Pathfinder::findPath($this->map, $this->hero->position, $enemy->position, $this->enemies);
+                if ($path !== null) {
+                    $canWinAny = true;
+                    break;
+                }
+            }
+        }
+
+        if (!$canWinAny) {
+            $this->gameOver = true;
+            $this->addLog("Game Over: No reachable enemies you can defeat! (Your HP: {$this->hero->hp})");
         }
     }
 

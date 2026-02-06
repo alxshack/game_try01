@@ -5,7 +5,11 @@ $state = GameState::load();
 
 if (!$state) {
     // Initialize new game if no state exists
-    $map = Map::loadFromJson(__DIR__ . '/../data/maps/map1.json');
+    $mapFile = Map::getFirstMapPath();
+    if (!$mapFile || !file_exists($mapFile)) {
+        sendError('No maps found in data/maps folder');
+    }
+    $map = Map::loadFromJson($mapFile);
     $state = new GameState($map);
     GameState::save($state);
 }

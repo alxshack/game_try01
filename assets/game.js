@@ -178,8 +178,25 @@ function centerCameraOnHero() {
 }
 
 // API Calls
+const apiIndicator = document.getElementById('api-indicator');
+
+async function apiFetch(url, options = {}) {
+    if (apiIndicator) apiIndicator.style.display = 'block';
+    try {
+        const response = await fetch(url, options);
+        return response;
+    } finally {
+        if (apiIndicator) apiIndicator.style.display = 'none';
+    }
+}
+
 async function fetchState() {
-    const res = await fetch('api/state.php');
+    const res = await apiFetch('api/state.php');
+    if (!res.ok) {
+        const data = await res.json();
+        alert(data.error || 'Failed to fetch state');
+        return;
+    }
     gameState = await res.json();
     if (gameState && gameState.hero) {
         heroVisualPos = { ...gameState.hero.position };
@@ -190,7 +207,12 @@ async function fetchState() {
 }
 
 async function resetGame() {
-    const res = await fetch('api/reset.php');
+    const res = await apiFetch('api/reset.php');
+    if (!res.ok) {
+        const data = await res.json();
+        alert(data.error || 'Failed to reset game');
+        return;
+    }
     gameState = await res.json();
     if (gameState && gameState.hero) {
         heroVisualPos = { ...gameState.hero.position };
@@ -207,11 +229,12 @@ async function resetGame() {
 }
 
 async function getPath(x, y, z) {
-    const res = await fetch('api/path.php', {
+    const res = await apiFetch('api/path.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ x, y, z })
     });
+    if (!res.ok) return;
     const data = await res.json();
     if (data.path) {
         currentPath = data.path;
@@ -226,11 +249,15 @@ async function executeMove() {
     if (currentPath.length === 0 || isMoving || isAnimating) return;
     isMoving = true;
     
-    const res = await fetch('api/move.php', {
+    const res = await apiFetch('api/move.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: currentPath })
     });
+    if (!res.ok) {
+        isMoving = false;
+        return;
+    }
     const data = await res.json();
     
     pendingGameState = data;
@@ -271,11 +298,24 @@ function updateAnimation() {
 function finishMovement() {
     isAnimating = false;
     if (pendingGameState) {
+        const oldLevel = gameState ? gameState.currentLevel : null;
         gameState = pendingGameState.state;
+        
+        if (oldLevel !== null && gameState.currentLevel !== oldLevel) {
+            // Level transition! Sync visual position and camera
+            if (gameState.hero) {
+                heroVisualPos = { ...gameState.hero.position };
+                centerCameraOnHero();
+            }
+        }
+        
         if (pendingGameState.combatTriggered) {
             showCombatOverlay(pendingGameState.enemy);
         }
         updateUI();
+        
+        console.log("Finish Movement. Current Level:", gameState.currentLevel, "GameOver:", gameState.gameOver, "Victory:", gameState.victory);
+        
         if (gameState.gameOver && !gameState.victory) {
             alert("GAME OVER!");
         } else if (gameState.victory) {
@@ -293,18 +333,30 @@ function showCombatOverlay(enemy) {
 }
 
 async function resolveCombat() {
-    const res = await fetch('api/combat.php', { method: 'POST' });
+    const res = await apiFetch('api/combat.php', { method: 'POST' });
+    if (!res.ok) return;
     const data = await res.json();
-    gameState = data.state;
+    
     document.getElementById('combat-overlay').style.display = 'none';
-    updateUI();
+
+    if (data.resolution && data.resolution.result === 'victory') {
+        // Анимируем перемещение на клетку врага
+        moveQueue = [ { ...data.state.hero.position } ];
+        pendingGameState = { state: data.state };
+        isAnimating = true;
+    } else {
+        gameState = data.state;
+        if (gameState && gameState.hero) {
+            heroVisualPos = { ...gameState.hero.position };
+        }
+        updateUI();
+        if (gameState.gameOver && !gameState.victory) {
+            alert("GAME OVER!");
+        }
+    }
+    
     lastCursorTile = null;
     updateCursor();
-    if (gameState.gameOver && !gameState.victory) {
-        alert("GAME OVER!");
-    } else if (gameState.victory) {
-        alert("VICTORY!");
-    }
 }
 
 // Rendering

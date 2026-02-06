@@ -125,10 +125,21 @@
             display: none;
             text-align: center;
         }
+        #api-indicator {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-size: 24px;
+            color: #ffcc00;
+            display: none;
+            z-index: 20;
+            text-shadow: 0 0 5px #000;
+        }
     </style>
 </head>
 <body>
     <div id="game-container">
+        <div id="api-indicator">⌛</div>
         <canvas id="gameCanvas"></canvas>
         <div id="combat-overlay">
             <h2 id="combat-title">COMBAT!</h2>

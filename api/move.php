@@ -19,6 +19,8 @@ $fullPath = $input['path'];
 $movedPath = [];
 $combatTriggered = false;
 $enemyEncountered = null;
+// очистим возможный «хвост» незавершенного боя
+$state->pendingCombatEnemyPos = null;
 
 // The first element of path is usually the current position, skip it
 if (count($fullPath) > 0 && 
@@ -29,33 +31,48 @@ if (count($fullPath) > 0 &&
 }
 
 foreach ($fullPath as $step) {
-    // Check if next tile has an enemy
+    // Проверяем: следующая клетка содержит врага?
     $enemy = $state->getEnemyAt($step['x'], $step['y'], $step['z']);
     if ($enemy) {
         $combatTriggered = true;
         $enemyEncountered = $enemy;
-        // Move hero TO the enemy tile to trigger combat
-        $state->hero->position = $step;
-        $movedPath[] = $step;
+        // НЕ занимаем клетку врага: останавливаемся на текущей (последней пройденной) клетке
+        // и запоминаем координаты врага для боя
+        $state->pendingCombatEnemyPos = [
+            'x' => $step['x'],
+            'y' => $step['y'],
+            'z' => $step['z']
+        ];
+        // В movedPath не добавляем клетку врага
         break;
     }
 
-    // Move hero
+    // Двигаем героя на следующую клетку пути
     $state->hero->position = $step;
     $movedPath[] = $step;
 
-    // Check for exit
+    // Проверяем выход
     $tile = $state->map->getTile($step['x'], $step['y'], $step['z']);
     if ($tile && $tile['type'] === 'exit') {
-        $nextLevel = $state->currentLevel + 1;
-        $nextMapFile = __DIR__ . "/../data/maps/map$nextLevel.json";
+        $currentLvl = (int)($state->currentLevel ?? 1);
+        $nextLevel = $currentLvl + 1;
         
-        if (file_exists($nextMapFile)) {
+        $nextMapFile = Map::getMapPath($nextLevel);
+
+        if ($nextMapFile && file_exists($nextMapFile)) {
             $oldHeroHP = $state->hero->hp;
-            $newMap = Map::loadFromJson($nextMapFile);
-            $state = new GameState($newMap, $nextLevel);
-            $state->hero->hp = $oldHeroHP;
-            $state->addLog("You reached the exit! Welcome to Level $nextLevel!");
+            try {
+                $newMap = Map::loadFromJson($nextMapFile);
+                $state = new GameState($newMap, $nextLevel);
+                $state->hero->hp = $oldHeroHP;
+                $state->addLog("You reached the exit! Welcome to Level $nextLevel!");
+                // Проверяем возможность продолжить игру на новом уровне
+                $state->checkLossCondition();
+            } catch (Exception $e) {
+                $state->addLog("Error loading next map: " . $e->getMessage());
+                $state->victory = true;
+                $state->gameOver = true;
+            }
         } else {
             $state->victory = true;
             $state->gameOver = true;

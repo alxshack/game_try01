@@ -1,13 +1,17 @@
 <?php
 require_once 'bootstrap.php';
 
-$mapFile = __DIR__ . '/../data/maps/map1.json';
-if (!file_exists($mapFile)) {
-    $script = __DIR__ . "/../scripts/generate_map.php";
-    exec("php $script map1.json");
+$mapFile = Map::getFirstMapPath();
+if (!$mapFile || !file_exists($mapFile)) {
+    sendError('No maps found in data/maps folder');
 }
+
 $map = Map::loadFromJson($mapFile);
 $state = new GameState($map);
+
+// Проверяем условие проигрыша в самом начале (на всякий случай)
+$state->checkLossCondition();
+
 GameState::save($state);
 
 sendResponse($state->toArray());
