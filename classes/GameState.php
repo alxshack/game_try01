@@ -7,10 +7,16 @@ class GameState {
     public array $log;
     public bool $gameOver;
     public bool $victory;
+    public int $currentLevel;
 
-    public function __construct(Map $map) {
+    public function __construct(Map $map, int $level = 1) {
         $this->map = $map;
-        $this->log = ["Game started! Welcome to HP Accumulator."];
+        $this->currentLevel = $level;
+        if ($level === 1) {
+            $this->log = ["Game started! Welcome to HP Accumulator."];
+        } else {
+            $this->log = ["Welcome to Level $level!"];
+        }
         $this->gameOver = false;
         $this->victory = false;
         
@@ -66,6 +72,7 @@ class GameState {
             'log' => $this->log,
             'gameOver' => $this->gameOver,
             'victory' => $this->victory,
+            'currentLevel' => $this->currentLevel,
             'map' => [
                 'width' => $this->map->width,
                 'height' => $this->map->height,

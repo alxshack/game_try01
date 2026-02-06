@@ -22,19 +22,58 @@
             justify-content: center;
             align-items: center;
             background-color: #000;
+            overflow: hidden;
         }
         #side-panel {
-            width: 300px;
+            width: 320px;
             background-color: #2c2c2c;
             border-left: 2px solid #444;
             display: flex;
             flex-direction: column;
-            padding: 20px;
+            padding: 15px;
             box-sizing: border-box;
+            transition: all 0.3s ease;
+            z-index: 10;
+        }
+        @media (max-width: 900px) {
+            body {
+                flex-direction: column;
+            }
+            #side-panel {
+                width: 100%;
+                height: 35%;
+                border-left: none;
+                border-top: 2px solid #444;
+                padding: 10px;
+            }
+            .minimap {
+                height: 100px;
+                margin-bottom: 10px;
+            }
+            .hp-display {
+                margin: 5px 0;
+                font-size: 1.5em;
+            }
+            .controls-hint {
+                display: none;
+            }
+        }
+        @media (max-height: 600px) and (orientation: landscape) {
+            #side-panel {
+                width: 200px;
+                padding: 5px;
+            }
+            .minimap, .controls-hint {
+                display: none;
+            }
+            .hp-display {
+                font-size: 1.2em;
+                margin: 5px 0;
+            }
         }
         canvas {
-            cursor: pointer;
-            image-rendering: pixelated;
+            image-rendering: auto;
+            display: block;
         }
         h2 { margin-top: 0; color: #ffcc00; }
         .hp-display {
@@ -98,20 +137,22 @@
         </div>
     </div>
     <div id="side-panel">
-        <h2>HP ACCUMULATOR</h2>
+        <h2 style="font-size: 1.2em; margin-bottom: 10px;">HP ACCUMULATOR</h2>
         <div class="hp-display" id="hp-val">2</div>
-        <div class="log-panel" id="log-panel"></div>
         <div class="minimap" id="minimap-container">
             <canvas id="minimapCanvas"></canvas>
         </div>
+        <div class="log-panel" id="log-panel"></div>
         <div class="controls-hint">
             1st Click: Select Path<br>
             2nd Click: Move<br>
             WASD: Pan Camera<br>
             Space: Center Camera
         </div>
-        <button onclick="centerCameraOnHero()">CENTER CAMERA</button>
-        <button onclick="resetGame()">RESTART GAME</button>
+        <div style="display: flex; flex-direction: column; gap: 5px;">
+            <button onclick="centerCameraOnHero()">CENTER CAMERA</button>
+            <button onclick="resetGame()">RESTART GAME</button>
+        </div>
     </div>
 
     <script src="assets/game.js"></script>

@@ -47,9 +47,20 @@ foreach ($fullPath as $step) {
     // Check for exit
     $tile = $state->map->getTile($step['x'], $step['y'], $step['z']);
     if ($tile && $tile['type'] === 'exit') {
-        $state->victory = true;
-        $state->gameOver = true;
-        $state->addLog("You reached the exit! Victory!");
+        $nextLevel = $state->currentLevel + 1;
+        $nextMapFile = __DIR__ . "/../data/maps/map$nextLevel.json";
+        
+        if (file_exists($nextMapFile)) {
+            $oldHeroHP = $state->hero->hp;
+            $newMap = Map::loadFromJson($nextMapFile);
+            $state = new GameState($newMap, $nextLevel);
+            $state->hero->hp = $oldHeroHP;
+            $state->addLog("You reached the exit! Welcome to Level $nextLevel!");
+        } else {
+            $state->victory = true;
+            $state->gameOver = true;
+            $state->addLog("You reached the exit! Victory!");
+        }
         break;
     }
 }
