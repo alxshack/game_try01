@@ -11,6 +11,9 @@ let currentPath = [];
 let targetTile = null;
 let camera = { x: 0, y: 0 };
 let isMoving = false;
+let mousePos = { x: -1, y: -1 };
+const EDGE_WIDTH = 50;
+const SCROLL_SPEED = 10;
 
 // Initialization
 async function init() {
@@ -210,7 +213,17 @@ function drawMinimap() {
     mctx.fillRect(gameState.hero.position.x * scale, gameState.hero.position.y * scale, scale, scale);
 }
 
+function updateCamera() {
+    if (mousePos.x < 0 || mousePos.y < 0) return;
+    
+    if (mousePos.x < EDGE_WIDTH) camera.x -= SCROLL_SPEED;
+    if (mousePos.x > canvas.width - EDGE_WIDTH) camera.x += SCROLL_SPEED;
+    if (mousePos.y < EDGE_WIDTH) camera.y -= SCROLL_SPEED;
+    if (mousePos.y > canvas.height - EDGE_WIDTH) camera.y += SCROLL_SPEED;
+}
+
 function gameLoop() {
+    updateCamera();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (gameState) {
         drawMap();
@@ -401,12 +414,27 @@ canvas.addEventListener('mousedown', e => {
     }
 });
 
+canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    mousePos.x = e.clientX - rect.left;
+    mousePos.y = e.clientY - rect.top;
+});
+
+canvas.addEventListener('mouseleave', () => {
+    mousePos.x = -1;
+    mousePos.y = -1;
+});
+
 window.addEventListener('keydown', e => {
     const speed = 100;
     if (e.key === 'w') camera.y -= speed;
     if (e.key === 's') camera.y += speed;
     if (e.key === 'a') camera.x -= speed;
     if (e.key === 'd') camera.x += speed;
+    if (e.code === 'Space') {
+        e.preventDefault();
+        centerCameraOnHero();
+    }
 });
 
 init();

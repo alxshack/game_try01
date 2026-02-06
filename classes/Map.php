@@ -49,9 +49,8 @@ class Map {
             return false;
         }
         
-        // Check for impassable entities (enemies) - actually in this game movement stops at combat, but can we walk INTO them?
-        // Rules say: "Movement halts at combat encounters". "Trigger: Automatic when hero enters enemy-occupied tile".
-        // So enemies are technically walkable but trigger combat.
+        // Враги (сущности) проверяются динамически в Pathfinder.
+        // Статическая проходимость плитки зависит только от её типа.
         return true;
     }
 }

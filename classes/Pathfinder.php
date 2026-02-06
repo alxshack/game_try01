@@ -1,6 +1,11 @@
 <?php
 
 class Pathfinder {
+    /**
+     * Находит путь от точки start до точки end.
+     * Враги блокируют построение маршрута, если их нельзя обойти,
+     * за исключением случая, когда враг находится в целевой точке.
+     */
     public static function findPath(Map $map, array $start, array $end, array $enemies = []): ?array {
         $openSet = [];
         $closedSet = [];
@@ -17,7 +22,7 @@ class Pathfinder {
         $openSet[] = $startNode;
         
         while (!empty($openSet)) {
-            // Find node with lowest f = g + h
+            // Ищем узел с минимальным f = g + h
             $currentIndex = 0;
             foreach ($openSet as $i => $node) {
                 if ($node['g'] + $node['h'] < $openSet[$currentIndex]['g'] + $openSet[$currentIndex]['h']) {
@@ -27,6 +32,7 @@ class Pathfinder {
             
             $current = $openSet[$currentIndex];
             
+            // Если достигли цели
             if ($current['x'] === $end['x'] && $current['y'] === $end['y'] && $current['z'] === $end['z']) {
                 $path = [];
                 while ($current !== null) {
@@ -39,7 +45,7 @@ class Pathfinder {
             array_splice($openSet, $currentIndex, 1);
             $closedSet[] = $current;
             
-            foreach (self::getNeighbors($map, $current, $enemies) as $neighbor) {
+            foreach (self::getNeighbors($map, $current, $enemies, $end) as $neighbor) {
                 if (self::isInList($closedSet, $neighbor)) {
                     continue;
                 }
@@ -63,10 +69,10 @@ class Pathfinder {
     }
 
     private static function heuristic(array $a, array $b): int {
-        return abs($a['x'] - $b['x']) + abs($a['y'] - $b['y']) + abs($a['z'] - $b['z']) * 10; // Penalize level changes a bit
+        return abs($a['x'] - $b['x']) + abs($a['y'] - $b['y']) + abs($a['z'] - $b['z']) * 10;
     }
 
-    private static function getNeighbors(Map $map, array $node, array $enemies): array {
+    private static function getNeighbors(Map $map, array $node, array $enemies, array $target): array {
         $neighbors = [];
         $directions = [
             ['x' => 0, 'y' => 1], ['x' => 0, 'y' => -1],
@@ -83,37 +89,36 @@ class Pathfinder {
             
             if ($nx < 0 || $nx >= $map->width || $ny < 0 || $ny >= $map->height) continue;
 
-            // 1. Движение на текущем уровне
-            // "все элементы, кроме лестниц, находящиеся на уровне z героя +1 являются помехой"
             $tileAbove = $map->getTile($nx, $ny, $z + 1);
             $isBlockedByAbove = ($tileAbove && strpos($tileAbove['type'], 'stairs') === false);
             
             if (!$isBlockedByAbove && $map->isWalkable($nx, $ny, $z)) {
                 $targetTile = $map->getTile($nx, $ny, $z);
-                // "при прохождении лестницы значение z героя меняется"
-                if ($targetTile['type'] === 'stairs_up') {
+                $isStair = (strpos($targetTile['type'], 'stairs') !== false);
+                
+                if ($isStair) {
+                    $stairMoved = false;
                     if ($z + 1 < $map->levels && $map->isWalkable($nx, $ny, $z + 1)) {
                         $neighbors[] = ['x' => $nx, 'y' => $ny, 'z' => $z + 1];
+                        $stairMoved = true;
                     }
-                } elseif ($targetTile['type'] === 'stairs_down') {
                     if ($z > 0 && $map->isWalkable($nx, $ny, $z - 1)) {
                         $neighbors[] = ['x' => $nx, 'y' => $ny, 'z' => $z - 1];
+                        $stairMoved = true;
+                    }
+                    if (!$stairMoved) {
+                        $neighbors[] = ['x' => $nx, 'y' => $ny, 'z' => $z];
                     }
                 } else {
                     $neighbors[] = ['x' => $nx, 'y' => $ny, 'z' => $z];
                 }
             }
 
-            // 2. Переход на другой уровень через примыкающую лестницу (если текущий заблокирован или просто как альтернатива)
-            // "на элементы с уровнем высоты, отличным от текущего... можно переместиться, передвигаясь по примыкающим элементам 'лестница'"
-            
-            // Вверх
             $tileUp = $map->getTile($nx, $ny, $z + 1);
             if ($tileUp && strpos($tileUp['type'], 'stairs') !== false && $map->isWalkable($nx, $ny, $z + 1)) {
                 $neighbors[] = ['x' => $nx, 'y' => $ny, 'z' => $z + 1];
             }
             
-            // Вниз
             if ($z > 0) {
                 $tileDown = $map->getTile($nx, $ny, $z - 1);
                 if ($tileDown && strpos($tileDown['type'], 'stairs') !== false && $map->isWalkable($nx, $ny, $z - 1)) {
@@ -122,14 +127,33 @@ class Pathfinder {
             }
         }
         
-        // Remove duplicates if any
         $uniqueNeighbors = [];
         foreach ($neighbors as $n) {
+            // Если на клетке есть враг, и это не наша конечная цель, то проходить сквозь неё нельзя.
+            if (self::hasEnemy($enemies, $n) && !self::isSamePos($n, $target)) {
+                continue;
+            }
+
             $key = "{$n['x']},{$n['y']},{$n['z']}";
             $uniqueNeighbors[$key] = $n;
         }
         
         return array_values($uniqueNeighbors);
+    }
+
+    private static function hasEnemy(array $enemies, array $pos): bool {
+        foreach ($enemies as $enemy) {
+            if ($enemy->position['x'] === $pos['x'] && 
+                $enemy->position['y'] === $pos['y'] && 
+                $enemy->position['z'] === $pos['z']) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static function isSamePos(array $a, array $b): bool {
+        return $a['x'] === $b['x'] && $a['y'] === $b['y'] && $a['z'] === $b['z'];
     }
 
     private static function isInList(array $list, array $node): bool {

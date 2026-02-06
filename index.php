@@ -72,6 +72,7 @@
             border: none;
             cursor: pointer;
             font-weight: bold;
+            margin-bottom: 10px;
         }
         button:hover { background-color: #666; }
         #combat-overlay {
@@ -106,8 +107,10 @@
         <div class="controls-hint">
             1st Click: Select Path<br>
             2nd Click: Move<br>
-            WASD: Pan Camera
+            WASD: Pan Camera<br>
+            Space: Center Camera
         </div>
+        <button onclick="centerCameraOnHero()">CENTER CAMERA</button>
         <button onclick="resetGame()">RESTART GAME</button>
     </div>
 
