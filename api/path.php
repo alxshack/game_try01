@@ -24,7 +24,18 @@ $end = [
     'z' => (int)$input['z']
 ];
 
-$path = Pathfinder::findPath($state->map, $start, $end, $state->enemies);
+// Получаем видимые плитки (туман войны)
+$visibleTiles = $input['visibleTiles'] ?? [];
+
+// Создаём множество видимых плиток для быстрой проверки
+$visibleSet = [];
+foreach ($visibleTiles as $tile) {
+    $key = "{$tile['x']},{$tile['y']},{$tile['z']}";
+    $visibleSet[$key] = true;
+}
+
+// Передаём ВСЕХ врагов (враг блокирует путь, даже если не виден)
+$path = Pathfinder::findPath($state->map, $start, $end, $state->enemies, $visibleTiles);
 
     if ($path === null) {
         Logger::error('path', sprintf(

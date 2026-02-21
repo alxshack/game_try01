@@ -127,19 +127,25 @@ function updateCursor() {
     let nextCursor = 'default';
 
     if (iso.x >= 0 && iso.x < gameState.map.width && iso.y >= 0 && iso.y < gameState.map.height) {
-        // Check for enemy
-        const hasEnemy = gameState.enemies.some(e =>
-            e.position.x === iso.x && e.position.y === iso.y && e.position.z === iso.z
-        );
-
-        if (hasEnemy) {
-            nextCursor = cursorDataUrls.enemy;
+        // Проверяем видимость плитки (туман войны)
+        if (!isTileVisible(iso.x, iso.y, iso.z)) {
+            // Плитка в тумане войны - показываем "нельзя пройти"
+            nextCursor = cursorDataUrls.unreachable;
         } else {
-            const tile = gameState.map.tiles[iso.z][iso.y][iso.x];
-            if (tile && tile.walkable) {
-                nextCursor = cursorDataUrls.reachable;
+            // Check for enemy
+            const hasEnemy = gameState.enemies.some(e =>
+                e.position.x === iso.x && e.position.y === iso.y && e.position.z === iso.z
+            );
+
+            if (hasEnemy) {
+                nextCursor = cursorDataUrls.enemy;
             } else {
-                nextCursor = cursorDataUrls.unreachable;
+                const tile = gameState.map.tiles[iso.z][iso.y][iso.x];
+                if (tile && tile.walkable) {
+                    nextCursor = cursorDataUrls.reachable;
+                } else {
+                    nextCursor = cursorDataUrls.unreachable;
+                }
             }
         }
     }
@@ -377,19 +383,60 @@ async function resetGame() {
 }
 
 async function getPath(x, y, z) {
+    // Проверяем видимость целевой плитки (туман войны)
+    if (!isTileVisible(x, y, z)) {
+        currentPath = [];
+        targetTile = null;
+        return;
+    }
+
+    // Преобразуем Set в массив для отправки на сервер
+    const visibleTiles = Array.from(exploredTiles).map(s => {
+        const [vx, vy, vz] = s.split(',').map(Number);
+        return { x: vx, y: vy, z: vz };
+    });
+
     const res = await apiFetch('api/path.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ x, y, z })
+        body: JSON.stringify({ x, y, z, visibleTiles })
     });
     if (!res.ok) return;
     const data = await res.json();
-    if (data.path) {
+
+    if (data.path && data.path.length > 0) {
+        // Путь найден
         currentPath = data.path;
         targetTile = { x, y, z };
     } else {
+        // Путь до цели не найден (враг на пути)
+        // Строим путь до ближайшей доступной клетки
         currentPath = [];
         targetTile = null;
+
+        // Запрашиваем путь до соседних клеток, чтобы найти ближайшую доступную
+        const neighbors = [
+            {x: x-1, y: y, z: z}, {x: x+1, y: y, z: z},
+            {x: x, y: y-1, z: z}, {x: x, y: y+1, z: z}
+        ];
+
+        for (const n of neighbors) {
+            if (!isTileVisible(n.x, n.y, n.z)) continue;
+
+            const res2 = await apiFetch('api/path.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ x: n.x, y: n.y, z: n.z, visibleTiles })
+            });
+            if (res2.ok) {
+                const data2 = await res2.json();
+                if (data2.path && data2.path.length > 0) {
+                    currentPath = data2.path;
+                    targetTile = { x: n.x, y: n.y, z: n.z };
+                    break;
+                }
+            }
+        }
     }
 }
 
@@ -617,7 +664,7 @@ function drawMinimap() {
     if (!gameState) return;
     const scale = Math.min(minimapCanvas.width / gameState.map.width, minimapCanvas.height / gameState.map.height);
     mctx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
-    
+
     // Draw tiles projection from all levels to show relief
     for(let y=0; y<gameState.map.height; y++) {
         for(let x=0; x<gameState.map.width; x++) {
@@ -630,16 +677,24 @@ function drawMinimap() {
                     break;
                 }
             }
-            
+
             if (!highestTile) continue;
-            
+
+            // Проверяем видимость плитки (туман войны)
+            if (!isTileVisible(x, y, highestTile.z)) {
+                // Плитка в тумане - рисуем чёрной
+                mctx.fillStyle = '#000';
+                mctx.fillRect(x * scale, y * scale, scale, scale);
+                continue;
+            }
+
             // Base color based on type and texture
             let color;
             if (highestTile.type === 'exit') color = '#0f0';
             else if (highestTile.type.startsWith('stairs')) color = '#00f';
             else if (highestTile.type === 'wall') color = '#555';
             else color = highestTile.walkable ? '#444' : '#222';
-            
+
             // Add relief shade: higher is lighter
             if (highestTile.z > 0) {
                 // simple brightening for higher tiles
@@ -648,23 +703,25 @@ function drawMinimap() {
             }
 
             mctx.fillStyle = color;
-            
+
             // Brighten based on height
             if (highestTile.type === 'floor' || highestTile.type === 'wall') {
                 if (highestTile.z === 1) mctx.fillStyle = '#666';
                 if (highestTile.z === 2) mctx.fillStyle = '#888';
             }
-            
+
             mctx.fillRect(x * scale, y * scale, scale, scale);
         }
     }
-    
-    // Draw enemies
+
+    // Draw enemies (только видимых)
     gameState.enemies.forEach(e => {
-        mctx.fillStyle = e.color || '#f00';
-        mctx.fillRect(e.position.x * scale, e.position.y * scale, scale, scale);
+        if (isTileVisible(e.position.x, e.position.y, e.position.z)) {
+            mctx.fillStyle = e.color || '#f00';
+            mctx.fillRect(e.position.x * scale, e.position.y * scale, scale, scale);
+        }
     });
-    
+
     // Draw hero
     mctx.fillStyle = '#fff';
     mctx.fillRect(heroVisualPos.x * scale, heroVisualPos.y * scale, scale, scale);

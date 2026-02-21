@@ -104,7 +104,8 @@ class GameState {
             // Игрок может победить, если его HP больше или равно HP врага (шанс 50/50 при равенстве)
             if ($this->hero->hp >= $enemy->hp) {
                 // Проверяем, можно ли дойти до этого врага
-                $path = Pathfinder::findPath($this->map, $this->hero->position, $enemy->position, $this->enemies);
+                // Туман войны не учитывается при проверке условия проигрыша
+                $path = Pathfinder::findPath($this->map, $this->hero->position, $enemy->position, $this->enemies, []);
                 if ($path !== null) {
                     $canWinAny = true;
                     break;
