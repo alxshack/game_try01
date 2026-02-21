@@ -695,17 +695,17 @@
             "x": 4,
             "y": 2,
             "z": 0,
-            "type": "wall",
-            "walkable": false,
-            "texture": "stone_floor"
+            "type": "floor",
+            "texture": "stone_floor",
+            "walkable": true
         },
         {
             "x": 5,
             "y": 2,
             "z": 0,
-            "type": "wall",
-            "walkable": false,
-            "texture": "stone_floor"
+            "type": "floor",
+            "texture": "stone_floor",
+            "walkable": true
         },
         {
             "x": 6,
@@ -1023,17 +1023,17 @@
             "x": 4,
             "y": 3,
             "z": 0,
-            "type": "wall",
-            "walkable": false,
-            "texture": "stone_floor"
+            "type": "floor",
+            "texture": "stone_floor",
+            "walkable": true
         },
         {
             "x": 5,
             "y": 3,
             "z": 0,
-            "type": "wall",
-            "walkable": false,
-            "texture": "stone_floor"
+            "type": "floor",
+            "texture": "stone_floor",
+            "walkable": true
         },
         {
             "x": 6,
@@ -2943,9 +2943,9 @@
             "x": 39,
             "y": 8,
             "z": 0,
-            "type": "wall",
-            "walkable": false,
-            "texture": "stone_floor"
+            "type": "floor",
+            "texture": "stone_floor",
+            "walkable": true
         },
         {
             "x": 40,
@@ -3271,9 +3271,9 @@
             "x": 39,
             "y": 9,
             "z": 0,
-            "type": "wall",
-            "walkable": false,
-            "texture": "stone_floor"
+            "type": "floor",
+            "texture": "stone_floor",
+            "walkable": true
         },
         {
             "x": 40,
@@ -3583,25 +3583,25 @@
             "x": 37,
             "y": 10,
             "z": 0,
-            "type": "wall",
-            "walkable": false,
-            "texture": "stone_floor"
+            "type": "floor",
+            "texture": "stone_floor",
+            "walkable": true
         },
         {
             "x": 38,
             "y": 10,
             "z": 0,
-            "type": "wall",
-            "walkable": false,
-            "texture": "stone_floor"
+            "type": "floor",
+            "texture": "stone_floor",
+            "walkable": true
         },
         {
             "x": 39,
             "y": 10,
             "z": 0,
-            "type": "wall",
-            "walkable": false,
-            "texture": "stone_floor"
+            "type": "floor",
+            "texture": "stone_floor",
+            "walkable": true
         },
         {
             "x": 40,
@@ -13454,15 +13454,6 @@
     ],
     "entities": [
         {
-            "type": "hero",
-            "position": {
-                "x": 36,
-                "y": 5,
-                "z": 0
-            },
-            "hp": 10
-        },
-        {
             "type": "guard",
             "position": {
                 "x": 19,
@@ -14981,6 +14972,24 @@
             },
             "hp": 18,
             "roomId": 12
+        },
+        {
+            "type": "enemy",
+            "position": {
+                "x": 39,
+                "y": 2,
+                "z": 0
+            },
+            "hp": 15
+        },
+        {
+            "type": "hero",
+            "position": {
+                "x": 38,
+                "y": 4,
+                "z": 0
+            },
+            "hp": 10
         }
     ]
 }

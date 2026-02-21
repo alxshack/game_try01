@@ -194,7 +194,10 @@
         <div id="combat-overlay">
             <h2 id="combat-title">COMBAT!</h2>
             <p id="combat-info"></p>
-            <button onclick="resolveCombat()">FIGHT!</button>
+            <div style="display:flex;gap:10px;justify-content:center;">
+                <button onclick="resolveCombat()" style="background-color:#c0392b;">FIGHT!</button>
+                <button onclick="cancelCombat()" style="background-color:#7f8c8d;">CANCEL</button>
+            </div>
         </div>
         <div id="combat-result-overlay">
             <h2 id="result-title"></h2>

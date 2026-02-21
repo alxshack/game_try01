@@ -27,6 +27,10 @@ let cursorDataUrls = {};
 let currentCursorStr = '';
 let lastCursorTile = null;
 
+// Fog of war - хранит открытые плитки: Set<"x,y,z"
+let exploredTiles = new Set();
+const FOG_RADIUS = 5;
+
 // Touch scrolling state
 let touchStartPos = { x: 0, y: 0 };
 let cameraStartPos = { x: 0, y: 0 };
@@ -124,7 +128,7 @@ function updateCursor() {
 
     if (iso.x >= 0 && iso.x < gameState.map.width && iso.y >= 0 && iso.y < gameState.map.height) {
         // Check for enemy
-        const hasEnemy = gameState.enemies.some(e => 
+        const hasEnemy = gameState.enemies.some(e =>
             e.position.x === iso.x && e.position.y === iso.y && e.position.z === iso.z
         );
 
@@ -141,6 +145,38 @@ function updateCursor() {
     }
 
     setCursor(nextCursor);
+}
+
+function updateFogOfWar() {
+    if (!gameState || !gameState.hero) return;
+
+    const heroX = Math.round(heroVisualPos.x);
+    const heroY = Math.round(heroVisualPos.y);
+    const heroZ = heroVisualPos.z;
+
+    // Открываем плитки в радиусе FOG_RADIUS от героя
+    for (let dz = 0; dz < gameState.map.levels; dz++) {
+        for (let dy = -FOG_RADIUS; dy <= FOG_RADIUS; dy++) {
+            for (let dx = -FOG_RADIUS; dx <= FOG_RADIUS; dx++) {
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist > FOG_RADIUS) continue;
+
+                const x = heroX + dx;
+                const y = heroY + dy;
+                const z = heroZ + dz;
+
+                if (x >= 0 && x < gameState.map.width &&
+                    y >= 0 && y < gameState.map.height &&
+                    z >= 0 && z < gameState.map.levels) {
+                    exploredTiles.add(`${x},${y},${z}`);
+                }
+            }
+        }
+    }
+}
+
+function isTileVisible(x, y, z) {
+    return exploredTiles.has(`${x},${y},${z}`);
 }
 
 function setCursor(cursorStr) {
@@ -293,12 +329,15 @@ async function fetchState() {
         gameState = await res.json();
         if (gameState && gameState.hero) {
             heroVisualPos = { ...gameState.hero.position };
+            // Сбрасываем туман войны при полной загрузке состояния
+            exploredTiles.clear();
+            updateFogOfWar();
             centerCameraOnHero();
         }
         updateUI();
         lastCursorTile = null;
         updateCursor();
-        
+
         // Start game loop only once
         if (!gameLoopStarted) {
             gameLoopStarted = true;
@@ -322,6 +361,9 @@ async function resetGame() {
     gameState = await res.json();
     if (gameState && gameState.hero) {
         heroVisualPos = { ...gameState.hero.position };
+        // Сбрасываем туман войны
+        exploredTiles.clear();
+        updateFogOfWar();
     }
     currentPath = [];
     targetTile = null;
@@ -480,6 +522,19 @@ function showCombatResult(data) {
 
 function closeCombatResult() {
     document.getElementById('combat-result-overlay').style.display = 'none';
+}
+
+function cancelCombat() {
+    document.getElementById('combat-overlay').style.display = 'none';
+    // Сбрасываем путь и цель, остаёмся на текущей позиции
+    currentPath = [];
+    targetTile = null;
+    isMoving = false;
+    // Возвращаем героя на фактическую позицию из gameState
+    if (gameState && gameState.hero) {
+        heroVisualPos = { ...gameState.hero.position };
+    }
+    updateCursor();
 }
 
 async function resolveCombat() {
@@ -646,6 +701,7 @@ function updateCamera() {
 function gameLoop() {
     updateAnimation();
     updateCamera();
+    updateFogOfWar();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (gameState) {
         drawMap();
@@ -657,14 +713,32 @@ function gameLoop() {
 
 function drawMap() {
     if (!gameState) return;
-    
+
     // Отрисовка по слоям Y -> X -> Z для правильного наложения
     for (let y = 0; y < gameState.map.height; y++) {
         for (let x = 0; x < gameState.map.width; x++) {
             for (let z = 0; z < gameState.map.levels; z++) {
                 const tile = gameState.map.tiles[z][y][x];
                 if (!tile) continue;
-                
+
+                // Проверяем видимость плитки
+                if (!isTileVisible(x, y, z)) {
+                    // Рисуем чёрную плитку для невидимых участков
+                    const pos = isoToScreen(x, y, z);
+                    const drawX = pos.x - camera.x;
+                    const drawY = pos.y - camera.y;
+
+                    ctx.beginPath();
+                    ctx.moveTo(drawX, drawY);
+                    ctx.lineTo(drawX + (TILE_W / 2) * gameScale, drawY + (TILE_H / 2) * gameScale);
+                    ctx.lineTo(drawX, drawY + TILE_H * gameScale);
+                    ctx.lineTo(drawX - (TILE_W / 2) * gameScale, drawY + (TILE_H / 2) * gameScale);
+                    ctx.closePath();
+                    ctx.fillStyle = '#000';
+                    ctx.fill();
+                    continue;
+                }
+
                 const pos = isoToScreen(x, y, z);
                 const drawX = pos.x - camera.x;
                 let drawY = pos.y - camera.y;
@@ -777,19 +851,21 @@ function drawMap() {
                 ctx.lineWidth = 1;
                 ctx.stroke();
 
-                // Отрисовка сущностей на этой плитке
-                gameState.enemies.forEach(e => {
-                    if (e.position.x === x && e.position.y === y && e.position.z === z) {
-                        drawEntity(e, e.position.x, e.position.y, e.position.z);
-                    }
-                });
+                // Отрисовка сущностей на этой плитке (только если плитка видима)
+                if (isTileVisible(x, y, z)) {
+                    gameState.enemies.forEach(e => {
+                        if (e.position.x === x && e.position.y === y && e.position.z === z) {
+                            drawEntity(e, e.position.x, e.position.y, e.position.z);
+                        }
+                    });
 
-                // Отрисовка героя с использованием визуальной позиции для анимации
-                if (gameState.hero &&
-                    Math.round(heroVisualPos.x) === x && 
-                    Math.round(heroVisualPos.y) === y && 
-                    Math.round(heroVisualPos.z) === z) {
-                    drawEntity(gameState.hero, heroVisualPos.x, heroVisualPos.y, heroVisualPos.z);
+                    // Отрисовка героя с использованием визуальной позиции для анимации
+                    if (gameState.hero &&
+                        Math.round(heroVisualPos.x) === x &&
+                        Math.round(heroVisualPos.y) === y &&
+                        Math.round(heroVisualPos.z) === z) {
+                        drawEntity(gameState.hero, heroVisualPos.x, heroVisualPos.y, heroVisualPos.z);
+                    }
                 }
             }
         }
