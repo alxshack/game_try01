@@ -33,7 +33,7 @@ class Pathfinder {
             $current = $openSet[$currentIndex];
             
             // Если достигли цели
-            if ($current['x'] === $end['x'] && $current['y'] === $end['y'] && $current['z'] === $end['z']) {
+            if ((int)$current['x'] === (int)$end['x'] && (int)$current['y'] === (int)$end['y'] && (int)$current['z'] === (int)$end['z']) {
                 $path = [];
                 while ($current !== null) {
                     $path[] = ['x' => $current['x'], 'y' => $current['y'], 'z' => $current['z']];
@@ -46,6 +46,7 @@ class Pathfinder {
             $closedSet[] = $current;
             
             foreach (self::getNeighbors($map, $current, $enemies, $end) as $neighbor) {
+                // error_log("Checking neighbor from (" . $current['x'] . "," . $current['y'] . "," . $current['z'] . "): " . json_encode($neighbor));
                 if (self::isInList($closedSet, $neighbor)) {
                     continue;
                 }
@@ -89,39 +90,38 @@ class Pathfinder {
             
             if ($nx < 0 || $nx >= $map->width || $ny < 0 || $ny >= $map->height) continue;
 
-            $tileAbove = $map->getTile($nx, $ny, $z + 1);
-            $isBlockedByAbove = ($tileAbove && strpos($tileAbove['type'], 'stairs') === false);
+            $tileAbove = ($z + 1 < $map->levels) ? $map->getTile($nx, $ny, $z + 1) : null;
+            // Клетка сверху блокирует проход, если она существует и НЕ является лестницей.
+            // Примечание: если на клетке сверху стоит стена, то она блокирует проход по клетке снизу.
+            $isBlockedByAbove = ($tileAbove && strpos($tileAbove['type'] ?? '', 'stairs') === false);
             
             if (!$isBlockedByAbove && $map->isWalkable($nx, $ny, $z)) {
                 $targetTile = $map->getTile($nx, $ny, $z);
-                $isStair = (strpos($targetTile['type'], 'stairs') !== false);
-                
-                if ($isStair) {
-                    $stairMoved = false;
+                if ($targetTile && strpos($targetTile['type'] ?? '', 'stairs') !== false) {
+                    // Если мы стоим на лестнице, мы можем подняться или спуститься
                     if ($z + 1 < $map->levels && $map->isWalkable($nx, $ny, $z + 1)) {
                         $neighbors[] = ['x' => $nx, 'y' => $ny, 'z' => $z + 1];
-                        $stairMoved = true;
                     }
                     if ($z > 0 && $map->isWalkable($nx, $ny, $z - 1)) {
                         $neighbors[] = ['x' => $nx, 'y' => $ny, 'z' => $z - 1];
-                        $stairMoved = true;
                     }
-                    if (!$stairMoved) {
-                        $neighbors[] = ['x' => $nx, 'y' => $ny, 'z' => $z];
-                    }
+                    // Также можно остаться на том же уровне
+                    $neighbors[] = ['x' => $nx, 'y' => $ny, 'z' => $z];
                 } else {
                     $neighbors[] = ['x' => $nx, 'y' => $ny, 'z' => $z];
                 }
             }
-
-            $tileUp = $map->getTile($nx, $ny, $z + 1);
-            if ($tileUp && strpos($tileUp['type'], 'stairs') !== false && $map->isWalkable($nx, $ny, $z + 1)) {
-                $neighbors[] = ['x' => $nx, 'y' => $ny, 'z' => $z + 1];
-            }
             
+            // Если соседняя клетка уровнем выше или ниже — это лестница, на неё можно перейти
+            if ($z + 1 < $map->levels) {
+                $tileUp = $map->getTile($nx, $ny, $z + 1);
+                if ($tileUp && strpos($tileUp['type'] ?? '', 'stairs') !== false && $map->isWalkable($nx, $ny, $z + 1)) {
+                    $neighbors[] = ['x' => $nx, 'y' => $ny, 'z' => $z + 1];
+                }
+            }
             if ($z > 0) {
                 $tileDown = $map->getTile($nx, $ny, $z - 1);
-                if ($tileDown && strpos($tileDown['type'], 'stairs') !== false && $map->isWalkable($nx, $ny, $z - 1)) {
+                if ($tileDown && strpos($tileDown['type'] ?? '', 'stairs') !== false && $map->isWalkable($nx, $ny, $z - 1)) {
                     $neighbors[] = ['x' => $nx, 'y' => $ny, 'z' => $z - 1];
                 }
             }
@@ -130,8 +130,17 @@ class Pathfinder {
         $uniqueNeighbors = [];
         foreach ($neighbors as $n) {
             // Если на клетке есть враг, и это не наша конечная цель, то проходить сквозь неё нельзя.
-            if (self::hasEnemy($enemies, $n) && !self::isSamePos($n, $target)) {
-                continue;
+            // Исключение: если у врага есть свойство isPassage = true.
+            $enemy = self::getEnemyAt($enemies, $n);
+            if ($enemy && !self::isSamePos($n, $target)) {
+                $isPassage = false;
+                if (isset($enemy->isPassage) && ($enemy->isPassage === true || $enemy->isPassage === "true" || $enemy->isPassage === 1 || $enemy->isPassage === "1")) {
+                    $isPassage = true;
+                }
+                
+                if (!$isPassage) {
+                    continue;
+                }
             }
 
             $key = "{$n['x']},{$n['y']},{$n['z']}";
@@ -141,24 +150,26 @@ class Pathfinder {
         return array_values($uniqueNeighbors);
     }
 
-    private static function hasEnemy(array $enemies, array $pos): bool {
+    private static function getEnemyAt(array $enemies, array $pos): ?Entity {
         foreach ($enemies as $enemy) {
-            if ($enemy->position['x'] === $pos['x'] && 
-                $enemy->position['y'] === $pos['y'] && 
-                $enemy->position['z'] === $pos['z']) {
-                return true;
+            if (self::isSamePos($enemy->position, $pos)) {
+                return $enemy;
             }
         }
-        return false;
+        return null;
+    }
+
+    private static function hasEnemy(array $enemies, array $pos): bool {
+        return self::getEnemyAt($enemies, $pos) !== null;
     }
 
     private static function isSamePos(array $a, array $b): bool {
-        return $a['x'] === $b['x'] && $a['y'] === $b['y'] && $a['z'] === $b['z'];
+        return (int)$a['x'] === (int)$b['x'] && (int)$a['y'] === (int)$b['y'] && (int)$a['z'] === (int)$b['z'];
     }
 
     private static function isInList(array $list, array $node): bool {
         foreach ($list as $item) {
-            if ($item['x'] === $node['x'] && $item['y'] === $node['y'] && $item['z'] === $node['z']) {
+            if (self::isSamePos($item, $node)) {
                 return true;
             }
         }
@@ -167,7 +178,7 @@ class Pathfinder {
 
     private static function findInList(array &$list, array $node): ?array {
         foreach ($list as &$item) {
-            if ($item['x'] === $node['x'] && $item['y'] === $node['y'] && $item['z'] === $node['z']) {
+            if (self::isSamePos($item, $node)) {
                 return $item;
             }
         }

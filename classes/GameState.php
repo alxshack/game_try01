@@ -4,14 +4,16 @@ class GameState {
     public Entity $hero;
     public array $enemies;
     public Map $map;
+    public ?string $mapPath = null;
     public array $log;
     public bool $gameOver;
     public bool $victory;
     public int $currentLevel;
     public ?array $pendingCombatEnemyPos = null; // ['x'=>int,'y'=>int,'z'=>int]
 
-    public function __construct(Map $map, int $level = 1) {
+    public function __construct(Map $map, string $mapPath, int $level = 1) {
         $this->map = $map;
+        $this->mapPath = $mapPath;
         $this->currentLevel = $level;
         if ($level === 1) {
             $this->log = ["Game started! Welcome to HP Accumulator."];
@@ -44,9 +46,27 @@ class GameState {
 
     public static function load(): ?GameState {
         if (isset($_SESSION['game_state'])) {
-            return unserialize($_SESSION['game_state']);
+            try {
+                $state = unserialize($_SESSION['game_state']);
+                if ($state instanceof GameState) {
+                    // Re-load map object if we have the path but not the object
+                    // In PHP 7.4+ typed properties can be uninitialized. isset() returns false for them.
+                    if ((!isset($state->map) || $state->map === null) && $state->mapPath && file_exists($state->mapPath)) {
+                        $state->map = Map::loadFromJson($state->mapPath);
+                    }
+                    return $state;
+                }
+            } catch (Throwable $e) {
+                Logger::error('system', "Session unserialize failed: " . $e->getMessage());
+                unset($_SESSION['game_state']);
+            }
         }
         return null;
+    }
+
+    public function __sleep(): array {
+        // Exclude 'map' from serialization to keep session small
+        return ['hero', 'enemies', 'log', 'gameOver', 'victory', 'currentLevel', 'pendingCombatEnemyPos', 'mapPath'];
     }
 
     public function getEnemyAt(int $x, int $y, int $z): ?Entity {

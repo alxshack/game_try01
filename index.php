@@ -13,6 +13,7 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             display: flex;
             height: 100vh;
+            width: 100vw;
             overflow: hidden;
         }
         #game-container {
@@ -35,40 +36,74 @@
             transition: all 0.3s ease;
             z-index: 10;
         }
+        
+        /* Mobile adjustments */
         @media (max-width: 900px) {
-            body {
-                flex-direction: column;
-            }
             #side-panel {
+                position: absolute;
+                top: 0;
+                left: 0;
                 width: 100%;
-                height: 35%;
-                border-left: none;
-                border-top: 2px solid #444;
+                height: 100%;
+                background: transparent;
+                border: none;
+                pointer-events: none;
                 padding: 10px;
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+                z-index: 100; /* Ensure UI is above canvas */
             }
-            .minimap {
-                height: 100px;
-                margin-bottom: 10px;
+            #side-panel > * {
+                pointer-events: auto;
+            }
+            #side-panel h2, .minimap, .log-panel, .controls-hint {
+                display: none;
             }
             .hp-display {
-                margin: 5px 0;
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                margin: 0;
+                padding: 5px 15px;
                 font-size: 1.5em;
+                background: rgba(51, 17, 17, 0.8);
             }
-            .controls-hint {
-                display: none;
+            .mobile-controls {
+                position: absolute;
+                bottom: 10px;
+                right: 10px;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+            button {
+                padding: 15px;
+                font-size: 1.1em;
+                background-color: rgba(68, 68, 68, 0.8);
             }
         }
-        @media (max-height: 600px) and (orientation: landscape) {
-            #side-panel {
-                width: 200px;
-                padding: 5px;
-            }
-            .minimap, .controls-hint {
-                display: none;
-            }
-            .hp-display {
-                font-size: 1.2em;
-                margin: 5px 0;
+
+        /* Portrait mode warning */
+        #orientation-warning {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #1a1a1a;
+            color: #ffcc00;
+            z-index: 9999;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 20px;
+        }
+        @media (max-width: 900px) and (orientation: portrait) {
+            #orientation-warning {
+                display: flex;
             }
         }
         canvas {
@@ -114,17 +149,28 @@
             margin-bottom: 10px;
         }
         button:hover { background-color: #666; }
-        #combat-overlay {
+        button:active { background-color: #888; }
+        #combat-overlay, #combat-result-overlay {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            background: rgba(0,0,0,0.8);
-            padding: 20px;
+            background: rgba(0,0,0,0.9);
+            padding: 30px;
             border: 2px solid #f00;
             display: none;
             text-align: center;
+            z-index: 1000;
+            min-width: 250px;
+            box-shadow: 0 0 20px rgba(255,0,0,0.5);
         }
+        #combat-result-overlay {
+            border-color: #ffcc00;
+            box-shadow: 0 0 20px rgba(255,204,0,0.5);
+        }
+        .result-win { color: #00ff00; }
+        .result-lost { color: #ff4444; }
+        .result-hp { font-size: 1.5em; margin: 15px 0; }
         #api-indicator {
             position: absolute;
             top: 10px;
@@ -139,12 +185,22 @@
 </head>
 <body>
     <div id="game-container">
+        <div id="orientation-warning">
+            <h2>Please Rotate Your Device</h2>
+            <p>This game is best played in landscape mode.</p>
+        </div>
         <div id="api-indicator">⌛</div>
         <canvas id="gameCanvas"></canvas>
         <div id="combat-overlay">
             <h2 id="combat-title">COMBAT!</h2>
             <p id="combat-info"></p>
             <button onclick="resolveCombat()">FIGHT!</button>
+        </div>
+        <div id="combat-result-overlay">
+            <h2 id="result-title"></h2>
+            <p id="result-hp-change" class="result-hp"></p>
+            <button id="result-ok-button" onclick="closeCombatResult()">OK</button>
+            <button id="result-restart-button" onclick="resetGame(); closeCombatResult()" style="display: none;">RESTART GAME</button>
         </div>
     </div>
     <div id="side-panel">
@@ -160,9 +216,10 @@
             WASD: Pan Camera<br>
             Space: Center Camera
         </div>
-        <div style="display: flex; flex-direction: column; gap: 5px;">
+        <div class="mobile-controls">
             <button onclick="centerCameraOnHero()">CENTER CAMERA</button>
             <button onclick="resetGame()">RESTART GAME</button>
+            <button onclick="location.href='editor.php'">MAP EDITOR</button>
         </div>
     </div>
 

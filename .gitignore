@@ -34,3 +34,6 @@ composer.lock
 # Build artifacts
 /build/
 /dist/
+
+/logs/*.log
+!/logs/.gitkeep

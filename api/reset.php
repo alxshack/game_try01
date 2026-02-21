@@ -7,7 +7,7 @@ if (!$mapFile || !file_exists($mapFile)) {
 }
 
 $map = Map::loadFromJson($mapFile);
-$state = new GameState($map);
+$state = new GameState($map, $mapFile);
 
 // Проверяем условие проигрыша в самом начале (на всякий случай)
 $state->checkLossCondition();

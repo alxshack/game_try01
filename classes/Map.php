@@ -45,7 +45,7 @@ class Map {
         }
 
         foreach ($json['entities'] as $entityData) {
-            $map->entities[] = new Entity($entityData['type'], $entityData['position'], $entityData['hp']);
+            $map->entities[] = Entity::create($entityData);
         }
 
         return $map;

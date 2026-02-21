@@ -27,6 +27,13 @@ let cursorDataUrls = {};
 let currentCursorStr = '';
 let lastCursorTile = null;
 
+// Touch scrolling state
+let touchStartPos = { x: 0, y: 0 };
+let cameraStartPos = { x: 0, y: 0 };
+let isScrolling = false;
+let lastTouchPos = { x: 0, y: 0 };
+const SCROLL_THRESHOLD = 10;
+
 function generateCursorDataUrls() {
     const size = 32;
     const canvas = document.createElement('canvas');
@@ -149,9 +156,77 @@ async function init() {
     window.addEventListener('resize', resizeCanvas);
     resizeCanvas();
     
+    // Touch support for scrolling and interaction
+    canvas.addEventListener('touchstart', handleTouch, {passive: false});
+    canvas.addEventListener('touchmove', handleTouch, {passive: false});
+    canvas.addEventListener('touchend', handleTouchEnd, {passive: false});
+    
     await fetchState();
     centerCameraOnHero();
-    requestAnimationFrame(gameLoop);
+}
+
+function isInputBlocked() {
+    const combatOverlay = document.getElementById('combat-overlay');
+    const combatResultOverlay = document.getElementById('combat-result-overlay');
+    const orientationWarning = document.getElementById('orientation-warning');
+    
+    return (combatOverlay && combatOverlay.style.display === 'block') ||
+           (combatResultOverlay && combatResultOverlay.style.display === 'block') ||
+           (orientationWarning && window.getComputedStyle(orientationWarning).display !== 'none');
+}
+
+function handleTouch(e) {
+    if (isInputBlocked()) return;
+    if (e.touches.length === 0) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    const rect = canvas.getBoundingClientRect();
+    const tx = touch.clientX - rect.left;
+    const ty = touch.clientY - rect.top;
+
+    if (e.type === 'touchstart') {
+        touchStartPos = { x: tx, y: ty };
+        lastTouchPos = { x: tx, y: ty };
+        cameraStartPos = { ...camera };
+        isScrolling = false;
+    } else if (e.type === 'touchmove') {
+        const dx = tx - touchStartPos.x;
+        const dy = ty - touchStartPos.y;
+
+        if (!isScrolling && (Math.abs(dx) > SCROLL_THRESHOLD || Math.abs(dy) > SCROLL_THRESHOLD)) {
+            isScrolling = true;
+        }
+
+        if (isScrolling) {
+            camera.x = cameraStartPos.x - dx;
+            camera.y = cameraStartPos.y - dy;
+        }
+        
+        lastTouchPos = { x: tx, y: ty };
+    }
+    
+    mousePos.x = tx;
+    mousePos.y = ty;
+    updateCursor();
+}
+
+function handleTouchEnd(e) {
+    if (isInputBlocked()) return;
+    if (!isScrolling) {
+        const mx = lastTouchPos.x + camera.x;
+        const my = lastTouchPos.y + camera.y;
+        const iso = screenToIso(mx, my);
+        
+        if (targetTile && iso.x === targetTile.x && iso.y === targetTile.y && iso.z === targetTile.z) {
+            executeMove();
+        } else {
+            getPath(iso.x, iso.y, iso.z);
+        }
+    }
+    
+    isScrolling = false;
+    mousePos.x = -1;
+    mousePos.y = -1;
 }
 
 function resizeCanvas() {
@@ -162,12 +237,21 @@ function resizeCanvas() {
     canvas.width = width;
     canvas.height = height;
     
-    // Calculate scale: base design for ~1200px width
-    // Minimum scale 0.5, maximum 1.2
-    gameScale = Math.max(0.4, Math.min(1.2, width / 1200));
+    const isMobile = window.innerWidth <= 900;
+    if (isMobile) {
+        // More aggressive scaling for mobile to see more of the map or zoom in
+        gameScale = Math.max(0.3, Math.min(1.0, width / 800));
+    } else {
+        // Calculate scale: base design for ~1200px width
+        // Minimum scale 0.5, maximum 1.2
+        gameScale = Math.max(0.4, Math.min(1.2, width / 1200));
+    }
     
-    minimapCanvas.width = document.getElementById('minimap-container').clientWidth;
-    minimapCanvas.height = document.getElementById('minimap-container').clientHeight;
+    const minimapContainer = document.getElementById('minimap-container');
+    if (minimapContainer && minimapContainer.clientWidth > 0) {
+        minimapCanvas.width = minimapContainer.clientWidth;
+        minimapCanvas.height = minimapContainer.clientHeight;
+    }
 }
 
 function centerCameraOnHero() {
@@ -191,20 +275,42 @@ async function apiFetch(url, options = {}) {
 }
 
 async function fetchState() {
-    const res = await apiFetch('api/state.php');
-    if (!res.ok) {
-        const data = await res.json();
-        alert(data.error || 'Failed to fetch state');
-        return;
+    try {
+        const res = await apiFetch('api/state.php');
+        if (!res.ok) {
+            let errorMsg = 'Failed to fetch state';
+            try {
+                const data = await res.json();
+                errorMsg = data.error || errorMsg;
+            } catch (e) {
+                // Not a JSON error or empty body
+                errorMsg += ` (${res.status} ${res.statusText})`;
+            }
+            console.error(errorMsg);
+            alert(errorMsg);
+            return;
+        }
+        gameState = await res.json();
+        if (gameState && gameState.hero) {
+            heroVisualPos = { ...gameState.hero.position };
+            centerCameraOnHero();
+        }
+        updateUI();
+        lastCursorTile = null;
+        updateCursor();
+        
+        // Start game loop only once
+        if (!gameLoopStarted) {
+            gameLoopStarted = true;
+            requestAnimationFrame(gameLoop);
+        }
+    } catch (e) {
+        console.error('Fetch state error:', e);
+        alert('Network error or server unavailable');
     }
-    gameState = await res.json();
-    if (gameState && gameState.hero) {
-        heroVisualPos = { ...gameState.hero.position };
-    }
-    updateUI();
-    lastCursorTile = null;
-    updateCursor();
 }
+
+let gameLoopStarted = false;
 
 async function resetGame() {
     const res = await apiFetch('api/reset.php');
@@ -317,7 +423,7 @@ function finishMovement() {
         console.log("Finish Movement. Current Level:", gameState.currentLevel, "GameOver:", gameState.gameOver, "Victory:", gameState.victory);
         
         if (gameState.gameOver && !gameState.victory) {
-            alert("GAME OVER!");
+            // alert("GAME OVER!");
         } else if (gameState.victory) {
             alert("VICTORY!");
         }
@@ -332,12 +438,57 @@ function showCombatOverlay(enemy) {
     document.getElementById('combat-overlay').style.display = 'block';
 }
 
+function showCombatResult(data) {
+    const overlay = document.getElementById('combat-result-overlay');
+    const title = document.getElementById('result-title');
+    const hpChange = document.getElementById('result-hp-change');
+    const okBtn = document.getElementById('result-ok-button');
+    const restartBtn = document.getElementById('result-restart-button');
+    
+    const isGameOver = data.state && data.state.gameOver && !data.state.victory;
+
+    if (data.resolution.result === 'victory') {
+        title.innerText = 'YOU WIN';
+        title.className = 'result-win';
+        hpChange.innerText = `+${data.hp_change} HP`;
+        hpChange.className = 'result-hp result-win';
+        overlay.style.borderColor = '#00ff00';
+        overlay.style.boxShadow = '0 0 20px rgba(0,255,0,0.5)';
+    } else {
+        if (isGameOver) {
+            title.innerText = 'GAME OVER';
+            hpChange.innerText = 'your level is less than less';
+        } else {
+            title.innerText = 'YOU LOST';
+            hpChange.innerText = `${data.hp_change} HP`;
+        }
+        hpChange.className = 'result-hp result-lost';
+        overlay.style.borderColor = '#ff4444';
+        overlay.style.boxShadow = '0 0 20px rgba(255,0,0,0.5)';
+    }
+
+    if (isGameOver) {
+        okBtn.style.display = 'none';
+        restartBtn.style.display = 'inline-block';
+    } else {
+        okBtn.style.display = 'inline-block';
+        restartBtn.style.display = 'none';
+    }
+    
+    overlay.style.display = 'block';
+}
+
+function closeCombatResult() {
+    document.getElementById('combat-result-overlay').style.display = 'none';
+}
+
 async function resolveCombat() {
     const res = await apiFetch('api/combat.php', { method: 'POST' });
     if (!res.ok) return;
     const data = await res.json();
     
     document.getElementById('combat-overlay').style.display = 'none';
+    showCombatResult(data);
 
     if (data.resolution && data.resolution.result === 'victory') {
         // Анимируем перемещение на клетку врага
@@ -351,7 +502,7 @@ async function resolveCombat() {
         }
         updateUI();
         if (gameState.gameOver && !gameState.victory) {
-            alert("GAME OVER!");
+            // alert("GAME OVER!"); // Убираем алерт, так как у нас теперь есть окно результата
         }
     }
     
@@ -455,7 +606,7 @@ function drawMinimap() {
     
     // Draw enemies
     gameState.enemies.forEach(e => {
-        mctx.fillStyle = '#f00';
+        mctx.fillStyle = e.color || '#f00';
         mctx.fillRect(e.position.x * scale, e.position.y * scale, scale, scale);
     });
     
@@ -465,8 +616,10 @@ function drawMinimap() {
 }
 
 function updateCamera() {
-    // 1. Ручное управление (WASD) или мышью
-    if (mousePos.x >= 0 && mousePos.y >= 0) {
+    const isMobile = window.innerWidth <= 900;
+    
+    // 1. Ручное управление (WASD) или мышью у края (только для десктопа)
+    if (!isMobile && mousePos.x >= 0 && mousePos.y >= 0) {
         if (mousePos.x < EDGE_WIDTH) camera.x -= SCROLL_SPEED;
         if (mousePos.x > canvas.width - EDGE_WIDTH) camera.x += SCROLL_SPEED;
         if (mousePos.y < EDGE_WIDTH) camera.y -= SCROLL_SPEED;
@@ -632,7 +785,8 @@ function drawMap() {
                 });
 
                 // Отрисовка героя с использованием визуальной позиции для анимации
-                if (Math.round(heroVisualPos.x) === x && 
+                if (gameState.hero &&
+                    Math.round(heroVisualPos.x) === x && 
                     Math.round(heroVisualPos.y) === y && 
                     Math.round(heroVisualPos.z) === z) {
                     drawEntity(gameState.hero, heroVisualPos.x, heroVisualPos.y, heroVisualPos.z);
@@ -643,6 +797,7 @@ function drawMap() {
 }
 
 function drawEntity(e, x, y, z) {
+    if (!e) return;
     const pos = isoToScreen(x, y, z);
     const drawX = pos.x - camera.x;
     const drawY = pos.y - camera.y;
@@ -650,7 +805,7 @@ function drawEntity(e, x, y, z) {
     const size = TILE_W * 0.2 * gameScale;
     
     // Тело сущности
-    ctx.fillStyle = (e.type === 'hero') ? '#eee' : '#f22';
+    ctx.fillStyle = e.color || ((e.type === 'hero') ? '#eee' : '#f22');
     ctx.beginPath();
     ctx.ellipse(drawX, drawY + (TILE_H / 2) * gameScale, size, size * 2, 0, 0, Math.PI * 2);
     ctx.fill();
@@ -715,7 +870,24 @@ function drawPath() {
 }
 
 // Controls
+
+// Close result overlay on click outside if OK button is visible
+function handleModalOutsideClick(e) {
+    const resultOverlay = document.getElementById('combat-result-overlay');
+    const okBtn = document.getElementById('result-ok-button');
+    
+    if (resultOverlay && resultOverlay.style.display === 'block' && okBtn && okBtn.style.display !== 'none') {
+        const target = e.target || (e.touches && e.touches[0] && e.touches[0].target);
+        if (target && !resultOverlay.contains(target)) {
+            closeCombatResult();
+        }
+    }
+}
+document.addEventListener('mousedown', handleModalOutsideClick);
+document.addEventListener('touchstart', handleModalOutsideClick);
+
 canvas.addEventListener('mousedown', e => {
+    if (isInputBlocked()) return;
     const rect = canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left + camera.x;
     const my = e.clientY - rect.top + camera.y;
@@ -730,6 +902,12 @@ canvas.addEventListener('mousedown', e => {
 });
 
 canvas.addEventListener('mousemove', e => {
+    if (isInputBlocked()) {
+        mousePos.x = -1;
+        mousePos.y = -1;
+        updateCursor();
+        return;
+    }
     const rect = canvas.getBoundingClientRect();
     mousePos.x = e.clientX - rect.left;
     mousePos.y = e.clientY - rect.top;
@@ -742,6 +920,7 @@ canvas.addEventListener('mouseleave', () => {
 });
 
 window.addEventListener('keydown', e => {
+    if (isInputBlocked()) return;
     const speed = 100;
     if (e.key === 'w') camera.y -= speed;
     if (e.key === 's') camera.y += speed;

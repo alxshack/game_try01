@@ -63,7 +63,7 @@ foreach ($fullPath as $step) {
             $oldHeroHP = $state->hero->hp;
             try {
                 $newMap = Map::loadFromJson($nextMapFile);
-                $state = new GameState($newMap, $nextLevel);
+                $state = new GameState($newMap, $nextMapFile, $nextLevel);
                 $state->hero->hp = $oldHeroHP;
                 $state->addLog("You reached the exit! Welcome to Level $nextLevel!");
                 // Проверяем возможность продолжить игру на новом уровне

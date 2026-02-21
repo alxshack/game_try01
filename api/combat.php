@@ -44,7 +44,8 @@ if ($resolution['result'] === 'victory') {
         $gain = (int)floor($enemyHP * 0.1);
     }
 
-    $state->hero->hp = $heroHPBefore + max(1, $gain);
+    $hpChange = max(1, $gain);
+    $state->hero->hp = $heroHPBefore + $hpChange;
 
     // Победив, занимаем клетку противника
     $state->hero->position = [
@@ -66,8 +67,8 @@ if ($resolution['result'] === 'victory') {
     $penalty = (int)floor($heroHPBefore * $penaltyFrac);
 
     $state->hero->hp = max(1, $heroHPBefore - $penalty);
-    $lost = $heroHPBefore - $state->hero->hp;
-    $state->addLog("Defeated by {$enemy->type}. Lost $lost HP (penalty " . round($penaltyFrac*100) . "%). Current HP: {$state->hero->hp}");
+    $hpChange = -($heroHPBefore - $state->hero->hp);
+    $state->addLog("Defeated by {$enemy->type}. Lost " . abs($hpChange) . " HP (penalty " . round($penaltyFrac*100) . "%). Current HP: {$state->hero->hp}");
 
     // Бой завершён, противник остаётся на месте
     $state->pendingCombatEnemyPos = null;
@@ -80,5 +81,6 @@ GameState::save($state);
 
 sendResponse([
     'state' => $state->toArray(),
-    'resolution' => $resolution
+    'resolution' => $resolution,
+    'hp_change' => $hpChange
 ]);
